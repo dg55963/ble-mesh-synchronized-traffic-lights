@@ -1,0 +1,18 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "idf.openOcdConfigs": [
+    "board/esp32-wrover-kit-3.3v.cfg"
+  ],
+  "idf.portWin": "COM9",
+  "idf.currentSetup": "C:\\esp\\v6.0\\esp-idf",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32"
+  },
+  "clangd.path": "C:\\Users\\david\\.espressif\\tools\\esp-clang\\esp-19.1.2_20250312\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=c:\\FAKS\\6. semestar\\ZAVRSNI\\BLE Mesh synchronized traffic lights\\build"
+  ],
+  "idf.flashType": "UART"
+}
