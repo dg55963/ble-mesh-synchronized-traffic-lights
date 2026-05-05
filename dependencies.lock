@@ -2,25 +2,25 @@ dependencies:
   button:
     dependencies: []
     source:
-      path: ..\..\..\..\esp\v6.0\esp-idf\examples\bluetooth\esp_ble_mesh\common_components\button
+      path: ..\..\esp\v6.0.1\esp-idf\examples\bluetooth\esp_ble_mesh\common_components\button
       type: local
     version: '*'
   example_init:
     dependencies: []
     source:
-      path: ..\..\..\..\esp\v6.0\esp-idf\examples\bluetooth\esp_ble_mesh\common_components\example_init
+      path: ..\..\esp\v6.0.1\esp-idf\examples\bluetooth\esp_ble_mesh\common_components\example_init
       type: local
     version: '*'
   example_nvs:
     dependencies: []
     source:
-      path: ..\..\..\..\esp\v6.0\esp-idf\examples\bluetooth\esp_ble_mesh\common_components\example_nvs
+      path: ..\..\esp\v6.0.1\esp-idf\examples\bluetooth\esp_ble_mesh\common_components\example_nvs
       type: local
     version: '*'
   idf:
     source:
       type: idf
-    version: 6.0.0
+    version: 6.0.1
 direct_dependencies:
 - button
 - example_init
