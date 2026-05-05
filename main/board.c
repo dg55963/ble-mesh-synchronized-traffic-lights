@@ -7,17 +7,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <stdio.h>
-
-#include "driver/gpio.h"
-#include "esp_log.h"
-
 #include "board.h"
 
-#define TAG "BOARD"
+#include <stdio.h>
 
-#define BUTTON_IO_NUM 0
-#define BUTTON_ACTIVE_LEVEL 0
+#define TAG "BOARD"
 
 struct _led_state led_state[3] = {
     {LED_OFF, LED_OFF, LED_RED, "red"},
@@ -25,16 +19,12 @@ struct _led_state led_state[3] = {
     {LED_OFF, LED_OFF, LED_GREEN, "green"},
 };
 
-void board_led_operation(uint8_t pin, uint8_t onoff)
-{
-    for (int i = 0; i < ARRAY_SIZE(led_state); i++)
-    {
-        if (led_state[i].pin != pin)
-        {
+void board_led_operation(uint8_t pin, uint8_t onoff) {
+    for (int i = 0; i < ARRAY_SIZE(led_state); i++) {
+        if (led_state[i].pin != pin) {
             continue;
         }
-        if (onoff == led_state[i].previous)
-        {
+        if (onoff == led_state[i].previous) {
             ESP_LOGW(TAG, "led %s is already %s", led_state[i].name, (onoff ? "on" : "off"));
             return;
         }
@@ -45,10 +35,8 @@ void board_led_operation(uint8_t pin, uint8_t onoff)
     ESP_LOGE(TAG, "LED is not found!");
 }
 
-static void board_led_init(void)
-{
-    for (int i = 0; i < ARRAY_SIZE(led_state); i++)
-    {
+static void board_led_init(void) {
+    for (int i = 0; i < ARRAY_SIZE(led_state); i++) {
         gpio_reset_pin(led_state[i].pin);
         gpio_set_direction(led_state[i].pin, GPIO_MODE_OUTPUT);
         gpio_set_level(led_state[i].pin, LED_OFF);
@@ -56,7 +44,4 @@ static void board_led_init(void)
     }
 }
 
-void board_init(void)
-{
-    board_led_init();
-}
+void board_init(void) { board_led_init(); }

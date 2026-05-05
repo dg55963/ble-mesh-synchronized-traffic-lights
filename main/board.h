@@ -11,12 +11,12 @@
 #define _BOARD_H_
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif /**< __cplusplus */
 
 #include "driver/gpio.h"
 #include "esp_ble_mesh_defs.h"
+#include "esp_log.h"
 
 #define LED_RED GPIO_NUM_27
 #define LED_YELLOW GPIO_NUM_26
@@ -25,17 +25,16 @@ extern "C"
 #define LED_ON 1
 #define LED_OFF 0
 
-    struct _led_state
-    {
-        uint8_t current;
-        uint8_t previous;
-        uint8_t pin;
-        char *name;
-    };
+struct _led_state {
+    uint8_t current;
+    uint8_t previous;
+    uint8_t pin;
+    char* name;
+};
 
-    void board_led_operation(uint8_t pin, uint8_t onoff);
+void board_led_operation(uint8_t pin, uint8_t onoff);
 
-    void board_init(void);
+void board_init(void);
 
 #ifdef __cplusplus
 }

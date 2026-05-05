@@ -11,20 +11,21 @@
 #include <stdio.h>
 #include <string.h>
 
+// necessary
 #include "ble_mesh_example_init.h"
 #include "esp_ble_mesh_common_api.h"
-#include "esp_ble_mesh_defs.h"
 #include "esp_ble_mesh_local_data_operation_api.h"
-#include "esp_ble_mesh_networking_api.h"
 #include "esp_ble_mesh_provisioning_api.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+
+// #include "esp_ble_mesh_networking_api.h"
 
 // my includes
 #include "ble_mesh_config.h"
 #include "board.h"
 
-#define TAG "EXAMPLE"
+#define TAG "MAIN"
 
 extern struct _led_state led_state[3];
 
@@ -34,7 +35,7 @@ static void prov_complete(uint16_t net_idx, uint16_t addr, uint8_t flags, uint32
     board_led_operation(LED_RED, LED_OFF);
 }
 
-static void example_change_led_state(esp_ble_mesh_model_t* model, esp_ble_mesh_msg_ctx_t* ctx, uint8_t onoff) {
+static void change_led_state(esp_ble_mesh_model_t* model, esp_ble_mesh_msg_ctx_t* ctx, uint8_t onoff) {
     uint16_t primary_addr = esp_ble_mesh_get_primary_element_address();
     uint8_t elem_count = esp_ble_mesh_get_element_count();
     struct _led_state* led = NULL;
@@ -58,7 +59,7 @@ static void example_change_led_state(esp_ble_mesh_model_t* model, esp_ble_mesh_m
     }
 }
 
-static void example_ble_mesh_provisioning_cb(esp_ble_mesh_prov_cb_event_t event, esp_ble_mesh_prov_cb_param_t* param) {
+static void ble_mesh_provisioning_cb(esp_ble_mesh_prov_cb_event_t event, esp_ble_mesh_prov_cb_param_t* param) {
     switch (event) {
         case ESP_BLE_MESH_PROV_REGISTER_COMP_EVT:
             ESP_LOGI(TAG, "ESP_BLE_MESH_PROV_REGISTER_COMP_EVT, err_code %d", param->prov_register_comp.err_code);
@@ -93,7 +94,7 @@ static void example_ble_mesh_provisioning_cb(esp_ble_mesh_prov_cb_event_t event,
     }
 }
 
-static void example_ble_mesh_config_server_cb(esp_ble_mesh_cfg_server_cb_event_t event, esp_ble_mesh_cfg_server_cb_param_t* param) {
+static void ble_mesh_config_server_cb(esp_ble_mesh_cfg_server_cb_event_t event, esp_ble_mesh_cfg_server_cb_param_t* param) {
     if (event == ESP_BLE_MESH_CFG_SERVER_STATE_CHANGE_EVT) {
         switch (param->ctx.recv_op) {
             case ESP_BLE_MESH_MODEL_OP_APP_KEY_ADD:
@@ -120,8 +121,8 @@ static void example_ble_mesh_config_server_cb(esp_ble_mesh_cfg_server_cb_event_t
 static esp_err_t ble_mesh_init(void) {
     esp_err_t err = ESP_OK;
 
-    esp_ble_mesh_register_prov_callback(example_ble_mesh_provisioning_cb);
-    esp_ble_mesh_register_config_server_callback(example_ble_mesh_config_server_cb);
+    esp_ble_mesh_register_prov_callback(ble_mesh_provisioning_cb);
+    esp_ble_mesh_register_config_server_callback(ble_mesh_config_server_cb);
 
     err = esp_ble_mesh_init(&provision, &composition);
     if (err != ESP_OK) {
