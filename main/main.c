@@ -11,15 +11,17 @@
 #include <stdio.h>
 #include <string.h>
 
-// necessary
+// ESP-IDF includes
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "nvs_flash.h"
+
+// BLE Mesh includes
 #include "ble_mesh_example_init.h"
 #include "esp_ble_mesh_common_api.h"
 #include "esp_ble_mesh_local_data_operation_api.h"
+#include "esp_ble_mesh_networking_api.h"
 #include "esp_ble_mesh_provisioning_api.h"
-#include "esp_log.h"
-#include "nvs_flash.h"
-
-// #include "esp_ble_mesh_networking_api.h"
 
 // my includes
 #include "ble_mesh_config.h"
@@ -27,49 +29,85 @@
 
 #define TAG "MAIN"
 
+#define LEADER_ELECTION_TIMEOUT_US 2000000
+
+uint16_t my_addr = BLE_MESH_ADDR_UNASSIGNED;
+uint16_t net_idx = BLE_MESH_KEY_UNUSED;
+
 extern struct _led_state led_state[3];
 
-static void prov_complete(uint16_t net_idx, uint16_t addr, uint8_t flags, uint32_t iv_index) {
-    ESP_LOGI(TAG, "net_idx: 0x%04x, addr: 0x%04x", net_idx, addr);
-    ESP_LOGI(TAG, "flags: 0x%02x, iv_index: 0x%08" PRIx32, flags, iv_index);
-    board_led_operation(LED_RED, LED_OFF);
+bool i_am_leader = false;
+bool leader_elected = false;
+bool leader_election_started = false;
+uint16_t leader_addr = BLE_MESH_ADDR_UNASSIGNED;
+void leader_timer_cb(void* arg);
+esp_timer_handle_t leader_timer;
+esp_timer_create_args_t leader_timer_args = {
+    .callback = leader_timer_cb,
+    .name = "leader_timer",
+};
+
+void start_leader_election() {
+    ESP_LOGI(TAG, "Starting leader election...");
+
+    esp_err_t err = esp_ble_mesh_model_publish(&vnd_models[0], ESP_BLE_MESH_VND_MODEL_OP_LEADER_ELECTION, 0, NULL, ROLE_NODE);
+    if (err) {
+        ESP_LOGE(TAG, "Failed to publish leader election message (err %d)", err);
+    } else {
+        ESP_LOGI(TAG, "Leader election message published successfully");
+    }
+
+    if (esp_timer_is_active(leader_timer)) {
+        esp_timer_stop(leader_timer);
+    }
+    esp_timer_start_once(leader_timer, LEADER_ELECTION_TIMEOUT_US);
 }
 
-static void change_led_state(esp_ble_mesh_model_t* model, esp_ble_mesh_msg_ctx_t* ctx, uint8_t onoff) {
-    uint16_t primary_addr = esp_ble_mesh_get_primary_element_address();
-    uint8_t elem_count = esp_ble_mesh_get_element_count();
-    struct _led_state* led = NULL;
-    uint8_t i;
+bool check_and_set_app_key_before_election() {
+    if (esp_ble_mesh_node_is_provisioned()) {
+        uint16_t app_idx = elements[0].vnd_models[0].keys[0];
 
-    if (ESP_BLE_MESH_ADDR_IS_UNICAST(ctx->recv_dst)) {
-        for (i = 0; i < elem_count; i++) {
-            if (ctx->recv_dst == (primary_addr + i)) {
-                led = &led_state[i];
-                board_led_operation(led->pin, onoff);
-            }
+        if (esp_ble_mesh_node_get_local_app_key(app_idx) != NULL) {
+            vnd_models[0].pub->app_idx = app_idx;
+            vnd_models[0].pub->publish_addr = ESP_BLE_MESH_ADDR_ALL_NODES;
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            return true;
+        } else {
+            ESP_LOGW(TAG, "No AppKey bound to the vendor model, cannot start leader election");
         }
-    } else if (ESP_BLE_MESH_ADDR_IS_GROUP(ctx->recv_dst)) {
-        if (esp_ble_mesh_is_model_subscribed_to_group(model, ctx->recv_dst)) {
-            led = &led_state[model->element->element_addr - primary_addr];
-            board_led_operation(led->pin, onoff);
-        }
-    } else if (ctx->recv_dst == 0xFFFF) {
-        led = &led_state[model->element->element_addr - primary_addr];
-        board_led_operation(led->pin, onoff);
+    } else {
+        ESP_LOGI(TAG, "Node is not provisioned, waiting for provisioning to complete...");
     }
+    return false;
+}
+
+void leader_timer_cb(void* arg) {
+    esp_err_t err = esp_ble_mesh_model_publish(&vnd_models[0], ESP_BLE_MESH_VND_MODEL_OP_LEADER_VICTORY, 0, NULL, ROLE_NODE);
+    if (err) {
+        ESP_LOGE(TAG, "Failed to publish leader victory message (err %d)", err);
+    } else {
+        ESP_LOGI(TAG, "Leader victory message published successfully");
+    }
+    i_am_leader = true;
+    leader_elected = true;
+    leader_election_started = false;
+    leader_addr = my_addr;
+    if (esp_timer_is_active(leader_timer)) {
+        esp_timer_stop(leader_timer);
+    }
+}
+
+static void prov_complete(uint16_t _net_idx, uint16_t _addr, uint8_t flags, uint32_t iv_index) {
+    ESP_LOGI(TAG, "net_idx: 0x%04x, addr: 0x%04x", _net_idx, _addr);
+    ESP_LOGI(TAG, "flags: 0x%02x, iv_index: 0x%08" PRIx32, flags, iv_index);
+    net_idx = _net_idx;
+    my_addr = _addr;
 }
 
 static void ble_mesh_provisioning_cb(esp_ble_mesh_prov_cb_event_t event, esp_ble_mesh_prov_cb_param_t* param) {
     switch (event) {
         case ESP_BLE_MESH_PROV_REGISTER_COMP_EVT:
             ESP_LOGI(TAG, "ESP_BLE_MESH_PROV_REGISTER_COMP_EVT, err_code %d", param->prov_register_comp.err_code);
-            if (esp_ble_mesh_node_is_provisioned()) {
-                ESP_LOGI(TAG, "Node already provisioned");
-                board_led_operation(LED_RED, LED_OFF);
-            } else {
-                ESP_LOGI(TAG, "Node NOT provisioned");
-                board_led_operation(LED_RED, LED_ON);
-            }
             break;
         case ESP_BLE_MESH_NODE_PROV_ENABLE_COMP_EVT:
             ESP_LOGI(TAG, "ESP_BLE_MESH_NODE_PROV_ENABLE_COMP_EVT, err_code %d", param->node_prov_enable_comp.err_code);
@@ -118,11 +156,71 @@ static void ble_mesh_config_server_cb(esp_ble_mesh_cfg_server_cb_event_t event, 
     }
 }
 
+static void ble_mesh_custom_model_cb(esp_ble_mesh_model_cb_event_t event, esp_ble_mesh_model_cb_param_t* param) {
+    if (event == ESP_BLE_MESH_MODEL_OPERATION_EVT) {
+        if (param->model_operation.ctx->addr != my_addr) {
+            switch (param->model_operation.opcode) {
+                case ESP_BLE_MESH_VND_MODEL_OP_LEADER_ELECTION:
+                    ESP_LOGI(TAG, "Leader election message received from addr 0x%04x", param->model_operation.ctx->addr);
+                    if (param->model_operation.ctx->addr > my_addr) {
+                        esp_ble_mesh_msg_ctx_t ctx = {
+                            .net_idx = net_idx,
+                            .app_idx = param->model_operation.ctx->app_idx,
+                            .addr = param->model_operation.ctx->addr,
+                        };
+                        esp_err_t err = esp_ble_mesh_server_model_send_msg(param->model_operation.model, &ctx, ESP_BLE_MESH_VND_MODEL_OP_LEADER_ALIVE, 0, NULL);
+                        if (err != ESP_OK) {
+                            ESP_LOGE(TAG, "Failed to send leader alive message (err %d)", err);
+                        } else {
+                            ESP_LOGI(TAG, "Leader alive message sent successfully");
+                        }
+                        if (!leader_election_started) {
+                            start_leader_election();
+                            leader_election_started = true;
+                        }
+                    }
+                    break;
+                case ESP_BLE_MESH_VND_MODEL_OP_LEADER_ALIVE:
+                    ESP_LOGI(TAG, "Leader alive message received from addr 0x%04x", param->model_operation.ctx->addr);
+                    i_am_leader = false;
+                    esp_timer_stop(leader_timer);
+                    break;
+                case ESP_BLE_MESH_VND_MODEL_OP_LEADER_VICTORY:
+                    ESP_LOGI(TAG, "Leader victory message received from addr 0x%04x", param->model_operation.ctx->addr);
+                    if (param->model_operation.ctx->addr > my_addr) {
+                        esp_ble_mesh_msg_ctx_t ctx = {
+                            .net_idx = net_idx,
+                            .app_idx = param->model_operation.ctx->app_idx,
+                            .addr = param->model_operation.ctx->addr,
+                        };
+                        esp_err_t err = esp_ble_mesh_server_model_send_msg(param->model_operation.model, &ctx, ESP_BLE_MESH_VND_MODEL_OP_LEADER_ALIVE, 0, NULL);
+                        if (err != ESP_OK) {
+                            ESP_LOGE(TAG, "Failed to send leader alive message (err %d)", err);
+                        } else {
+                            ESP_LOGI(TAG, "Leader alive message sent successfully");
+                        }
+                        start_leader_election();
+                        leader_election_started = true;
+                    } else {
+                        i_am_leader = false;
+                        leader_elected = true;
+                        leader_election_started = false;
+                        leader_addr = param->model_operation.ctx->addr;
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+}
+
 static esp_err_t ble_mesh_init(void) {
     esp_err_t err = ESP_OK;
 
     esp_ble_mesh_register_prov_callback(ble_mesh_provisioning_cb);
     esp_ble_mesh_register_config_server_callback(ble_mesh_config_server_cb);
+    esp_ble_mesh_register_custom_model_callback(ble_mesh_custom_model_cb);
 
     err = esp_ble_mesh_init(&provision, &composition);
     if (err != ESP_OK) {
@@ -130,15 +228,15 @@ static esp_err_t ble_mesh_init(void) {
         return err;
     }
 
-    err = esp_ble_mesh_node_prov_enable((esp_ble_mesh_prov_bearer_t)(ESP_BLE_MESH_PROV_ADV | ESP_BLE_MESH_PROV_GATT));
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to enable mesh node (err %d)", err);
-        return err;
+    if (!esp_ble_mesh_node_is_provisioned()) {
+        err = esp_ble_mesh_node_prov_enable((esp_ble_mesh_prov_bearer_t)(ESP_BLE_MESH_PROV_ADV | ESP_BLE_MESH_PROV_GATT));
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to enable mesh node (err %d)", err);
+            return err;
+        }
     }
 
     ESP_LOGI(TAG, "BLE Mesh Node initialized");
-
-    board_led_operation(LED_RED, LED_ON);
 
     return err;
 }
@@ -169,5 +267,28 @@ void app_main(void) {
     err = ble_mesh_init();
     if (err) {
         ESP_LOGE(TAG, "Bluetooth mesh init failed (err %d)", err);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    while (1) {
+        if (leader_elected) {
+            if (i_am_leader) {
+                ESP_LOGI(TAG, "I am the leader (addr: 0x%04x)", my_addr);
+                board_led_operation(LED_RED, LED_ON);
+                board_led_operation(LED_GREEN, LED_OFF);
+            } else {
+                ESP_LOGI(TAG, "Leader elected (addr: 0x%04x)", leader_addr);
+                board_led_operation(LED_RED, LED_OFF);
+                board_led_operation(LED_GREEN, LED_ON);
+            }
+            vTaskDelay(pdMS_TO_TICKS(5000));
+        } else {
+            if (check_and_set_app_key_before_election() && !leader_election_started) {
+                esp_timer_create(&leader_timer_args, &leader_timer);
+                start_leader_election();
+                leader_election_started = true;
+            }
+        }
     }
 }
