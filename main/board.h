@@ -32,6 +32,8 @@ struct _led_state {
     char* name;
 };
 
+extern struct _led_state led_state[3];
+
 void board_led_operation(uint8_t pin, uint8_t onoff);
 
 void board_init(void);
