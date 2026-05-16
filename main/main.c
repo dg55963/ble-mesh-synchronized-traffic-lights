@@ -29,25 +29,77 @@
 
 #define TAG "MAIN"
 
+#define MAX_NODES 9
 #define LEADER_ELECTION_TIMEOUT_US 2000000
+#define HEARTBEAT_INTERVAL_US 2000000
+#define TIMEOUT_US 5000000
 
 uint16_t my_addr = BLE_MESH_ADDR_UNASSIGNED;
 uint16_t net_idx = BLE_MESH_KEY_UNUSED;
 
 extern struct _led_state led_state[3];
 
-bool i_am_leader = false;
-bool leader_elected = false;
-bool leader_election_started = false;
+uint16_t slave_list[MAX_NODES - 1];
+uint16_t slave_count = 0;
+uint8_t slave_check = 0;
+
+volatile bool i_am_leader = false;
+volatile bool leader_elected = false;
+volatile bool leader_election_started = false;
 uint16_t leader_addr = BLE_MESH_ADDR_UNASSIGNED;
-void leader_timer_cb(void* arg);
-esp_timer_handle_t leader_timer;
-esp_timer_create_args_t leader_timer_args = {
-    .callback = leader_timer_cb,
-    .name = "leader_timer",
+
+esp_timer_handle_t leader_victory_timer;
+void leader_victory_timer_cb(void* arg);
+esp_timer_create_args_t leader_victory_timer_args = {
+    .callback = leader_victory_timer_cb,
+    .name = "leader_victory_timer",
 };
 
+esp_timer_handle_t heartbeat_timer;
+void heartbeat_timer_cb(void* arg);
+esp_timer_create_args_t heartbeat_timer_args = {
+    .callback = heartbeat_timer_cb,
+    .name = "heartbeat_timer",
+};
+
+esp_timer_handle_t timeout_timer;
+void timeout_timer_cb(void* arg);
+esp_timer_create_args_t timeout_timer_args = {
+    .callback = timeout_timer_cb,
+    .name = "timeout_timer",
+};
+
+void start_heartbeat() {
+    if (esp_timer_is_active(heartbeat_timer)) esp_timer_stop(heartbeat_timer);
+    esp_err_t err_heartbeat = esp_timer_start_periodic(heartbeat_timer, HEARTBEAT_INTERVAL_US);
+    if (err_heartbeat) {
+        ESP_LOGE(TAG, "Failed to start heartbeat timer (err %d)", err_heartbeat);
+    } else {
+        ESP_LOGI(TAG, "Heartbeat timer started successfully");
+    }
+
+    if (esp_timer_is_active(timeout_timer)) esp_timer_stop(timeout_timer);
+    esp_err_t err_timeout = esp_timer_start_once(timeout_timer, TIMEOUT_US);
+    if (err_timeout) {
+        ESP_LOGE(TAG, "Failed to start timeout timer (err %d)", err_timeout);
+    } else {
+        ESP_LOGI(TAG, "Timeout timer started successfully");
+    }
+}
+
+void heartbeat_timer_cb(void* arg) {
+    esp_err_t err = esp_ble_mesh_model_publish(&vnd_models[0], ESP_BLE_MESH_VND_MODEL_OP_HEARTBEAT, 0, NULL, ROLE_NODE);
+
+    if (err) {
+        ESP_LOGE(TAG, "Failed to publish heartbeat message (err %d)", err);
+
+    } else {
+        ESP_LOGI(TAG, "Heartbeat message published successfully");
+    }
+}
+
 void start_leader_election() {
+    if (i_am_leader || leader_elected) return;
     ESP_LOGI(TAG, "Starting leader election...");
 
     esp_err_t err = esp_ble_mesh_model_publish(&vnd_models[0], ESP_BLE_MESH_VND_MODEL_OP_LEADER_ELECTION, 0, NULL, ROLE_NODE);
@@ -57,44 +109,43 @@ void start_leader_election() {
         ESP_LOGI(TAG, "Leader election message published successfully");
     }
 
-    if (esp_timer_is_active(leader_timer)) {
-        esp_timer_stop(leader_timer);
-    }
-    esp_timer_start_once(leader_timer, LEADER_ELECTION_TIMEOUT_US);
+    if (esp_timer_is_active(leader_victory_timer)) esp_timer_stop(leader_victory_timer);
+    esp_timer_start_once(leader_victory_timer, LEADER_ELECTION_TIMEOUT_US);
 }
 
-bool check_and_set_app_key_before_election() {
-    if (esp_ble_mesh_node_is_provisioned()) {
-        uint16_t app_idx = elements[0].vnd_models[0].keys[0];
-
-        if (esp_ble_mesh_node_get_local_app_key(app_idx) != NULL) {
-            vnd_models[0].pub->app_idx = app_idx;
-            vnd_models[0].pub->publish_addr = ESP_BLE_MESH_ADDR_ALL_NODES;
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            return true;
-        } else {
-            ESP_LOGW(TAG, "No AppKey bound to the vendor model, cannot start leader election");
-        }
+void timeout_timer_cb(void* arg) {
+    if (i_am_leader) {
+        ESP_LOGW(TAG, "I was the leader, but seems like I lost connection with slaves.");
     } else {
-        ESP_LOGI(TAG, "Node is not provisioned, waiting for provisioning to complete...");
+        ESP_LOGW(TAG, "Leader timeout, starting election...");
+        leader_elected = false;
+        leader_election_started = false;
+        leader_addr = BLE_MESH_ADDR_UNASSIGNED;
+        if (esp_timer_is_active(heartbeat_timer)) esp_timer_stop(heartbeat_timer);
+        if (esp_timer_is_active(timeout_timer)) esp_timer_stop(timeout_timer);
+        start_leader_election();
     }
-    return false;
 }
 
-void leader_timer_cb(void* arg) {
+void leader_victory_timer_cb(void* arg) {
+    if (leader_elected) return;
+
+    i_am_leader = true;
+    leader_elected = true;
+    leader_election_started = false;
+    leader_addr = my_addr;
+
+    slave_count = 0;
+    slave_check = 0;
+    memset(slave_list, 0, sizeof(slave_list));
+
     esp_err_t err = esp_ble_mesh_model_publish(&vnd_models[0], ESP_BLE_MESH_VND_MODEL_OP_LEADER_VICTORY, 0, NULL, ROLE_NODE);
     if (err) {
         ESP_LOGE(TAG, "Failed to publish leader victory message (err %d)", err);
     } else {
         ESP_LOGI(TAG, "Leader victory message published successfully");
     }
-    i_am_leader = true;
-    leader_elected = true;
-    leader_election_started = false;
-    leader_addr = my_addr;
-    if (esp_timer_is_active(leader_timer)) {
-        esp_timer_stop(leader_timer);
-    }
+    start_heartbeat();
 }
 
 static void prov_complete(uint16_t _net_idx, uint16_t _addr, uint8_t flags, uint32_t iv_index) {
@@ -164,50 +215,128 @@ static void ble_mesh_custom_model_cb(esp_ble_mesh_model_cb_event_t event, esp_bl
                     ESP_LOGI(TAG, "Leader election message received from addr 0x%04x", param->model_operation.ctx->addr);
                     if (param->model_operation.ctx->addr > my_addr) {
                         esp_ble_mesh_msg_ctx_t ctx = {
-                            .net_idx = net_idx,
+                            .net_idx = param->model_operation.ctx->net_idx,
                             .app_idx = param->model_operation.ctx->app_idx,
                             .addr = param->model_operation.ctx->addr,
                         };
-                        esp_err_t err = esp_ble_mesh_server_model_send_msg(param->model_operation.model, &ctx, ESP_BLE_MESH_VND_MODEL_OP_LEADER_ALIVE, 0, NULL);
-                        if (err != ESP_OK) {
-                            ESP_LOGE(TAG, "Failed to send leader alive message (err %d)", err);
+                        if (i_am_leader) {
+                            esp_err_t err = esp_ble_mesh_server_model_send_msg(&vnd_models[0], &ctx, ESP_BLE_MESH_VND_MODEL_OP_LEADER_VICTORY, 0, NULL);
+                            if (err != ESP_OK) {
+                                ESP_LOGE(TAG, "Failed to send leader victory message (err %d)", err);
+                            } else {
+                                ESP_LOGI(TAG, "Leader victory message sent successfully");
+                            }
                         } else {
-                            ESP_LOGI(TAG, "Leader alive message sent successfully");
+                            esp_err_t err = esp_ble_mesh_server_model_send_msg(&vnd_models[0], &ctx, ESP_BLE_MESH_VND_MODEL_OP_LEADER_ALIVE, 0, NULL);
+                            if (err != ESP_OK) {
+                                ESP_LOGE(TAG, "Failed to send leader alive message (err %d)", err);
+                            } else {
+                                ESP_LOGI(TAG, "Leader alive message sent successfully");
+                            }
                         }
-                        if (!leader_election_started) {
-                            start_leader_election();
-                            leader_election_started = true;
+                    } else if (param->model_operation.ctx->addr < leader_addr && leader_addr != BLE_MESH_ADDR_UNASSIGNED) {
+                        if (esp_timer_is_active(heartbeat_timer)) esp_timer_stop(heartbeat_timer);
+                        if (esp_timer_is_active(timeout_timer)) esp_timer_stop(timeout_timer);
+                    }
+
+                    break;
+
+                case ESP_BLE_MESH_VND_MODEL_OP_LEADER_ALIVE:
+                    ESP_LOGI(TAG, "Leader alive message received from addr 0x%04x", param->model_operation.ctx->addr);
+                    if (param->model_operation.ctx->addr < my_addr) {
+                        i_am_leader = false;
+
+                        if (esp_timer_is_active(leader_victory_timer)) {
+                            esp_timer_stop(leader_victory_timer);
                         }
                     }
                     break;
-                case ESP_BLE_MESH_VND_MODEL_OP_LEADER_ALIVE:
-                    ESP_LOGI(TAG, "Leader alive message received from addr 0x%04x", param->model_operation.ctx->addr);
-                    i_am_leader = false;
-                    esp_timer_stop(leader_timer);
-                    break;
+
                 case ESP_BLE_MESH_VND_MODEL_OP_LEADER_VICTORY:
                     ESP_LOGI(TAG, "Leader victory message received from addr 0x%04x", param->model_operation.ctx->addr);
-                    if (param->model_operation.ctx->addr > my_addr) {
-                        esp_ble_mesh_msg_ctx_t ctx = {
-                            .net_idx = net_idx,
-                            .app_idx = param->model_operation.ctx->app_idx,
-                            .addr = param->model_operation.ctx->addr,
-                        };
-                        esp_err_t err = esp_ble_mesh_server_model_send_msg(param->model_operation.model, &ctx, ESP_BLE_MESH_VND_MODEL_OP_LEADER_ALIVE, 0, NULL);
-                        if (err != ESP_OK) {
-                            ESP_LOGE(TAG, "Failed to send leader alive message (err %d)", err);
-                        } else {
-                            ESP_LOGI(TAG, "Leader alive message sent successfully");
-                        }
-                        start_leader_election();
-                        leader_election_started = true;
-                    } else {
+                    if (param->model_operation.ctx->addr < my_addr) {
+                        if (esp_timer_is_active(leader_victory_timer)) esp_timer_stop(leader_victory_timer);
                         i_am_leader = false;
                         leader_elected = true;
                         leader_election_started = false;
                         leader_addr = param->model_operation.ctx->addr;
+
+                        esp_ble_mesh_msg_ctx_t ctx = {
+                            .net_idx = param->model_operation.ctx->net_idx,
+                            .app_idx = param->model_operation.ctx->app_idx,
+                            .addr = param->model_operation.ctx->addr,
+                        };
+
+                        esp_err_t err = esp_ble_mesh_server_model_send_msg(&vnd_models[0], &ctx, ESP_BLE_MESH_VND_MODEL_OP_LEADER_ACK, 0, NULL);
+                        if (err != ESP_OK) {
+                            ESP_LOGE(TAG, "Failed to send leader ACK message (err %d)", err);
+                        } else {
+                            ESP_LOGI(TAG, "Leader ACK message sent successfully");
+                        }
                     }
                     break;
+
+                case ESP_BLE_MESH_VND_MODEL_OP_LEADER_ACK:
+                    ESP_LOGI(TAG, "Leader ACK message received from addr 0x%04x", param->model_operation.ctx->addr);
+                    if (slave_count < MAX_NODES - 1) {
+                        bool exists = false;
+
+                        for (size_t i = 0; i < slave_count; i++) {
+                            if (slave_list[i] == param->model_operation.ctx->addr) {
+                                exists = true;
+                                break;
+                            }
+                        }
+
+                        if (!exists) {
+                            slave_list[slave_count++] = param->model_operation.ctx->addr;
+                        }
+                        ESP_LOGI(TAG, "Slave addr 0x%04x added to slave list", param->model_operation.ctx->addr);
+                    } else {
+                        ESP_LOGW(TAG, "Slave list is full, cannot add addr 0x%04x", param->model_operation.ctx->addr);
+                    }
+                    break;
+
+                case ESP_BLE_MESH_VND_MODEL_OP_HEARTBEAT:
+                    ESP_LOGI(TAG, "Heartbeat message received from addr 0x%04x", param->model_operation.ctx->addr);
+                    if (leader_elected && param->model_operation.ctx->addr == leader_addr) {
+                        esp_ble_mesh_msg_ctx_t ctx = {
+                            .net_idx = param->model_operation.ctx->net_idx,
+                            .app_idx = param->model_operation.ctx->app_idx,
+                            .addr = param->model_operation.ctx->addr,
+                        };
+                        esp_err_t err = esp_ble_mesh_server_model_send_msg(&vnd_models[0], &ctx, ESP_BLE_MESH_VND_MODEL_OP_HEARTBEAT_ACK, 0, NULL);
+                        if (err != ESP_OK) {
+                            ESP_LOGE(TAG, "Failed to send heartbeat ACK message (err %d)", err);
+                        } else {
+                            ESP_LOGI(TAG, "Heartbeat ACK message sent successfully");
+                        }
+
+                        if (esp_timer_is_active(timeout_timer)) {
+                            esp_timer_restart(timeout_timer, TIMEOUT_US);
+                        } else {
+                            esp_timer_start_once(timeout_timer, TIMEOUT_US);
+                        }
+                    }
+                    break;
+
+                case ESP_BLE_MESH_VND_MODEL_OP_HEARTBEAT_ACK:
+                    if (i_am_leader) {
+                        for (size_t i = 0; i < slave_count; i++) {
+                            if (slave_list[i] == param->model_operation.ctx->addr) {
+                                ESP_LOGI(TAG, "Received heartbeat ACK from slave addr 0x%04x", param->model_operation.ctx->addr);
+                                slave_check |= (1 << i);
+                                break;
+                            }
+                        }
+                        if (slave_count > 0 && slave_check == ((1 << slave_count) - 1)) {
+                            ESP_LOGI(TAG, "Received heartbeat ACK from all slaves");
+                            if (esp_timer_is_active(timeout_timer)) esp_timer_restart(timeout_timer, TIMEOUT_US);
+                            slave_check = 0;
+                        }
+                    }
+                    break;
+
                 default:
                     break;
             }
@@ -270,6 +399,11 @@ void app_main(void) {
     }
 
     vTaskDelay(pdMS_TO_TICKS(1000));
+    esp_timer_create(&leader_victory_timer_args, &leader_victory_timer);
+    esp_timer_create(&heartbeat_timer_args, &heartbeat_timer);
+    esp_timer_create(&timeout_timer_args, &timeout_timer);
+
+    vnd_models[0].pub->publish_addr = ESP_BLE_MESH_ADDR_ALL_NODES;
 
     while (1) {
         if (leader_elected) {
@@ -284,10 +418,9 @@ void app_main(void) {
             }
             vTaskDelay(pdMS_TO_TICKS(5000));
         } else {
-            if (check_and_set_app_key_before_election() && !leader_election_started) {
-                esp_timer_create(&leader_timer_args, &leader_timer);
-                start_leader_election();
+            if (esp_ble_mesh_node_is_provisioned() && !leader_election_started) {
                 leader_election_started = true;
+                start_leader_election();
             }
         }
     }
