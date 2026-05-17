@@ -18,11 +18,34 @@ esp_timer_create_args_t timeout_timer_args = {
     .name = "timeout_timer",
 };
 
+esp_timer_handle_t sync_timer;
+esp_timer_create_args_t sync_timer_args = {
+    .callback = sync_timer_cb,
+    .name = "sync_timer",
+};
+
+esp_timer_handle_t scene_timer;
+esp_timer_create_args_t scene_timer_args = {
+    .callback = scene_timer_cb,
+    .name = "scene_timer",
+    .arg = &g_current_traffic_state,
+};
+
+esp_timer_handle_t traffic_control_timer;
+esp_timer_create_args_t traffic_control_timer_args = {
+    .callback = traffic_control_timer_cb,
+    .name = "traffic_control_timer",
+    .arg = &g_current_traffic_state,
+};
+
 void leader_victory_timer_cb(void* arg) {
     if (node_has_leader()) return;
     node_become_leader();
     mesh_publish_leader_victory();
     start_heartbeat();
+    start_sync();
+    vTaskDelay(pdMS_TO_TICKS(500));
+    start_scheduler();
 }
 
 void heartbeat_timer_cb(void* arg) { mesh_publish_heartbeat(); }
@@ -30,14 +53,20 @@ void heartbeat_timer_cb(void* arg) { mesh_publish_heartbeat(); }
 void timeout_timer_cb(void* arg) {
     if (node_is_leader()) {
         ESP_LOGW(TIMER_TAG, "I was the leader, but seems like I lost connection with slaves.");
+        g_current_traffic_state.blinking = true;
     } else {
         ESP_LOGW(TIMER_TAG, "Leader timeout, starting election...");
         node_reset();
-        stop_timer(heartbeat_timer);
-        stop_timer(timeout_timer);
+        stop_timer(sync_timer);
         start_leader_election();
     }
 }
+
+void sync_timer_cb(void* arg) { send_sync_request(); }
+
+void scene_timer_cb(void* arg) { traffic_apply_scene(((traffic_state_t*)arg)->scene); }
+
+void traffic_control_timer_cb(void* arg) { scheduler_step(((traffic_state_t*)arg)->blinking); }
 
 void start_timer_once(esp_timer_handle_t timer, const char* name, uint64_t timeout_us) {
     stop_timer(timer);
@@ -73,5 +102,14 @@ void timers_init() {
     }
     if (esp_timer_create(&timeout_timer_args, &timeout_timer) != ESP_OK) {
         ESP_LOGE(TIMER_TAG, "Failed to create timeout timer");
+    }
+    if (esp_timer_create(&sync_timer_args, &sync_timer) != ESP_OK) {
+        ESP_LOGE(TIMER_TAG, "Failed to create sync timer");
+    }
+    if (esp_timer_create(&scene_timer_args, &scene_timer) != ESP_OK) {
+        ESP_LOGE(TIMER_TAG, "Failed to create scene timer");
+    }
+    if (esp_timer_create(&traffic_control_timer_args, &traffic_control_timer) != ESP_OK) {
+        ESP_LOGE(TIMER_TAG, "Failed to create traffic control timer");
     }
 }

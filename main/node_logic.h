@@ -9,5 +9,6 @@
 
 void start_heartbeat();
 void start_leader_election();
+void start_sync();
 
 #endif  // NODE_LOGIC_H

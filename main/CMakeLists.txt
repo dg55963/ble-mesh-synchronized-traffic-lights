@@ -6,6 +6,8 @@ set(srcs "main.c"
         "node_state.c"
         "node_logic.c"
         "mesh_handlers.c"
+        "synchronization.c"
+        "traffic_controller.c"
        )
 
 idf_component_register(SRCS "${srcs}"

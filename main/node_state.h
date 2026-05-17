@@ -19,6 +19,7 @@ typedef enum {
 typedef struct {
     node_role_t role;
 
+    uint16_t net_idx;
     uint16_t my_addr;
     uint16_t leader_addr;
 

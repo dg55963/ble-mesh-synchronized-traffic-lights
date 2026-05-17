@@ -14,10 +14,10 @@
 #include "ble_mesh_config.h"
 #include "board.h"
 #include "mesh_handlers.h"
-#include "mesh_transport.h"
 #include "my_timers.h"
 #include "node_logic.h"
 #include "node_state.h"
+#include "traffic_controller.h"
 
 #define MAIN_TAG "MAIN"
 
@@ -25,6 +25,7 @@ static void prov_complete(uint16_t _net_idx, uint16_t _addr, uint8_t flags, uint
     ESP_LOGI(MAIN_TAG, "net_idx: 0x%04x, addr: 0x%04x", _net_idx, _addr);
     ESP_LOGI(MAIN_TAG, "flags: 0x%02x, iv_index: 0x%08" PRIx32, flags, iv_index);
     g_node.my_addr = _addr;
+    g_node.net_idx = _net_idx;
 }
 
 static void ble_mesh_provisioning_cb(esp_ble_mesh_prov_cb_event_t event, esp_ble_mesh_prov_cb_param_t* param) {
@@ -86,12 +87,12 @@ static void ble_mesh_custom_model_cb(esp_ble_mesh_model_cb_event_t event, esp_bl
                 case ESP_BLE_MESH_VND_MODEL_OP_LEADER_ELECTION:
                     ESP_LOGI(MAIN_TAG, "Leader election message received from addr 0x%04x", param->model_operation.ctx->addr);
                     handle_leader_election(param);
-                    break;
+                    return;
 
                 case ESP_BLE_MESH_VND_MODEL_OP_LEADER_ALIVE:
                     ESP_LOGI(MAIN_TAG, "Leader alive message received from addr 0x%04x", param->model_operation.ctx->addr);
                     handle_leader_alive(param);
-                    break;
+                    return;
 
                 case ESP_BLE_MESH_VND_MODEL_OP_LEADER_VICTORY:
                     ESP_LOGI(MAIN_TAG, "Leader victory message received from addr 0x%04x", param->model_operation.ctx->addr);
@@ -110,6 +111,39 @@ static void ble_mesh_custom_model_cb(esp_ble_mesh_model_cb_event_t event, esp_bl
 
                 case ESP_BLE_MESH_VND_MODEL_OP_HEARTBEAT_ACK:
                     handle_heartbeat_ack(param);
+                    break;
+
+                case ESP_BLE_MESH_VND_MODEL_OP_SYNC_REQUEST:
+                    ESP_LOGI(MAIN_TAG, "Sync request message received from addr 0x%04x", param->model_operation.ctx->addr);
+                    handle_sync_request(param);
+                    break;
+
+                case ESP_BLE_MESH_VND_MODEL_OP_SYNC_RESPONSE:
+                    ESP_LOGI(MAIN_TAG, "Sync response message received from addr 0x%04x", param->model_operation.ctx->addr);
+                    handle_sync_response(param);
+                    break;
+
+                case ESP_BLE_MESH_VND_MODEL_OP_SCENE_COMMAND:
+                    handle_scene_command(param);
+                    break;
+
+                default:
+                    break;
+            }
+        } else {
+            switch (param->model_operation.opcode) {
+                case ESP_BLE_MESH_VND_MODEL_OP_SYNC_REQUEST:
+                    ESP_LOGI(MAIN_TAG, "Sync request message received from myself");
+                    handle_sync_request(param);
+                    break;
+
+                case ESP_BLE_MESH_VND_MODEL_OP_SYNC_RESPONSE:
+                    ESP_LOGI(MAIN_TAG, "Sync response message received from myself");
+                    handle_sync_response(param);
+                    break;
+
+                case ESP_BLE_MESH_VND_MODEL_OP_SCENE_COMMAND:
+                    handle_scene_command(param);
                     break;
 
                 default:
@@ -177,26 +211,17 @@ void app_main(void) {
     timers_init();
     mesh_publish_init();
 
+    while (!esp_ble_mesh_node_is_provisioned()) {
+        ESP_LOGI(MAIN_TAG, "Waiting for provisioning...");
+        vTaskDelay(pdMS_TO_TICKS(3000));
+    }
+
+    start_leader_election();
+    while (node_is_idle()) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
     while (1) {
-        while (!esp_ble_mesh_node_is_provisioned()) {
-            ESP_LOGI(MAIN_TAG, "Waiting for provisioning...");
-            vTaskDelay(pdMS_TO_TICKS(3000));
-        }
-
-        start_leader_election();
-        while (node_is_idle()) {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-        }
-
-        if (node_is_leader()) {
-            ESP_LOGI(MAIN_TAG, "I am the leader (addr: 0x%04x)", g_node.my_addr);
-            board_led_operation(LED_RED, LED_ON);
-            board_led_operation(LED_GREEN, LED_OFF);
-        } else {
-            ESP_LOGI(MAIN_TAG, "Leader elected (addr: 0x%04x)", g_node.leader_addr);
-            board_led_operation(LED_RED, LED_OFF);
-            board_led_operation(LED_GREEN, LED_ON);
-        }
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }

@@ -25,7 +25,6 @@ void board_led_operation(uint8_t pin, uint8_t onoff) {
             continue;
         }
         if (onoff == led_state[i].previous) {
-            ESP_LOGW(TAG, "led %s is already %s", led_state[i].name, (onoff ? "on" : "off"));
             return;
         }
         gpio_set_level(pin, onoff);
