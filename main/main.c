@@ -221,6 +221,14 @@ void app_main(void) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
+    while (g_node.slave_count < NUM_OF_NODES - 1) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    if (node_is_leader()) {
+        start_scheduler();
+    }
+
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(2000));
     }

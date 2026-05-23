@@ -5,6 +5,10 @@ traffic_state_t g_current_traffic_state = {
     .blinking = false,
 };
 
+static uint8_t phase = 0;
+
+void traffic_reset_phase(void) { phase = 0; }
+
 static void publish_scene_group(uint16_t group_addr, traffic_scene_t scene, uint64_t execute_at_ms) {
     scene_command_t cmd = {
         .scene = scene,
@@ -57,10 +61,9 @@ void traffic_apply_scene(traffic_scene_t scene) {
     }
 }
 
-void scheduler_step(bool blink) {
+void scheduler_step() {
     uint32_t delay_ms = 1000;
-    static uint8_t phase = 0;
-    if (true) {
+    if (!g_current_traffic_state.blinking) {
         switch (phase) {
             case 0:
                 phase = 1;
@@ -133,4 +136,9 @@ void scheduler_step(bool blink) {
     start_timer_once(traffic_control_timer, "traffic control timer", delay_ms * 1000 + 100000);
 }
 
-void start_scheduler() { scheduler_step(false); }
+void start_scheduler() {
+    if (esp_timer_is_active(traffic_control_timer)) {
+        stop_timer(traffic_control_timer);
+    }
+    scheduler_step();
+}

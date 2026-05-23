@@ -49,8 +49,12 @@ void handle_heartbeat_ack(esp_ble_mesh_model_cb_param_t* param) {
                 break;
             }
         }
-        if (g_node.slave_count > 0 && g_node.slave_check_vector == ((1 << g_node.slave_count) - 1)) {
+        if (g_node.slave_count > 0 && g_node.slave_check_vector == ((1 << (NUM_OF_NODES - 1)) - 1)) {
             ESP_LOGI(MESH_HANDLERS_TAG, "Received heartbeat ACK from all slaves");
+            if (g_current_traffic_state.blinking) {
+                g_current_traffic_state.blinking = false;
+                traffic_reset_phase();
+            }
             start_timer_once(timeout_timer, "timeout timer", TIMEOUT_US);
             g_node.slave_check_vector = 0;
         }

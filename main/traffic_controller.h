@@ -24,6 +24,7 @@
 extern traffic_state_t g_current_traffic_state;
 
 void traffic_apply_scene(traffic_scene_t scene);
-void scheduler_step(bool blink);
+void traffic_reset_phase(void);
+void scheduler_step();
 void start_scheduler();
 #endif  // TRAFFIC_CONTROLLER_H
