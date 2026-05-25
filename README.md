@@ -29,6 +29,33 @@ idf.py -p <PORT> flash monitor
 
 Replace `<PORT>` with your device serial port.
 
+**How to run the demo**
+
+1. Choose how many ESP32 nodes you want in the mesh.
+   - The total node count is configured in [main/node_state.h](main/node_state.h) with `NUM_OF_NODES`.
+   - `NUM_OF_NODES` includes the leader node, so if you want 4 boards in the mesh, keep it at `4`.
+   - Do not set it to `9` or higher, because the code defines `MAX_NODES 9`.
+
+2. Build and flash the same firmware to every board.
+   - If you change `NUM_OF_NODES`, rebuild before flashing the boards again.
+   - Each node runs the same binary and decides its role at runtime.
+
+3. Provision every board into the same BLE Mesh network.
+   - The firmware stays in provisioning mode until it is provisioned.
+   - Use a mobile provisioner.
+   - Assign the same Net Key / App Key to all nodes in the network.
+
+4. Bind the vendor model and subscribe it to the traffic groups.
+   - The traffic controller publishes scene commands to two fixed group addresses:
+     - `0xC000` for the first traffic group
+     - `0xC001` for the second traffic group
+   - Subscribe each node’s vendor model to the group addresses you want it to receive.
+   - In practice, the boards that should react to synchronized traffic phases should subscribe to both `0xC000` and `0xC001`.
+
+5. Power the nodes and wait for the mesh to settle.
+   - After provisioning, the nodes elect a leader, exchange state, and start the synchronized traffic schedule automatically.
+   - The firmware waits until the expected number of follower nodes is present before starting the scheduler.
+
 **Hardware**
 
 - ESP32 development board per node.
@@ -56,18 +83,6 @@ These modules implement the distributed algorithms and the LED control used in t
 
 - The system prioritizes predictable, synchronized behavior over absolute precision — practical for lights where bounded drift and recovery are acceptable.
 - BLE Mesh is used as the communication substrate: after provisioning, nodes exchange lightweight state messages rather than streaming large payloads.
-
-**To demo locally**
-
-1. Provision a few ESP32 nodes into the BLE Mesh (use a mobile provisioner or a PC-based tool).
-2. Flash the firmware to each node.
-3. Power the nodes and watch them elect a leader and synchronize — LEDs will show coordinated traffic phases.
-
-**Want to contribute or evaluate me?**
-
-- Suggestions: add a provisioning walkthrough, wiring diagrams, and a short video of a running demo.
-- If you'd like, I can add a wiring diagram, schematic, or a short test harness for automated simulation of multiple nodes.
-
 ---
 
 Made to showcase distributed algorithms and embedded systems engineering with BLE Mesh and ESP32.
