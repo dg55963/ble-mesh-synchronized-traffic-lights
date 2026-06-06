@@ -87,7 +87,7 @@ void handle_sync_response(esp_ble_mesh_model_cb_param_t* param) {
 
     int64_t estimated_leader_now = response->leader_time_ms + estimated_delay;
 
-    g_sync.clock_offset_ms = estimated_leader_now - (t1 / 1000);
+    g_sync.clock_offset_ms = estimated_leader_now - t1;
 
     ESP_LOGI(MESH_HANDLERS_TAG, "Clock offset updated: %ld ms", g_sync.clock_offset_ms);
 }

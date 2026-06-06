@@ -67,55 +67,55 @@ void scheduler_step() {
         switch (phase) {
             case 0:
                 phase = 1;
-                delay_ms = START_DELAY_MS;
+                delay_ms = 0;
                 publish_scene(TRAFFIC_SCENE_ONLY_RED, esp_timer_get_time() / 1000 + delay_ms);
                 break;
 
             case 1:
                 phase = 2;
-                delay_ms = RED_YELLOW_DURATION_MS;
+                delay_ms = RED_DURATION_MS;
                 publish_scene_group(TRAFFIC_GROUP1_ADDR, TRAFFIC_SCENE_RED_AND_YELLOW, (esp_timer_get_time() / 1000) + delay_ms);
                 break;
 
             case 2:
                 phase = 3;
-                delay_ms = (((uint32_t)rand()) % 5000) + 5000;
+                delay_ms = RED_YELLOW_DURATION_MS;
                 publish_scene_group(TRAFFIC_GROUP1_ADDR, TRAFFIC_SCENE_ONLY_GREEN, (esp_timer_get_time() / 1000) + delay_ms);
                 break;
 
             case 3:
                 phase = 4;
-                delay_ms = YELLOW_DURATION_MS;
+                delay_ms = (((uint32_t)rand()) % 5000) + 5000;
                 publish_scene_group(TRAFFIC_GROUP1_ADDR, TRAFFIC_SCENE_ONLY_YELLOW, (esp_timer_get_time() / 1000) + delay_ms);
                 break;
 
             case 4:
                 phase = 5;
-                delay_ms = RED_DURATION_MS;
+                delay_ms = YELLOW_DURATION_MS;
                 publish_scene_group(TRAFFIC_GROUP1_ADDR, TRAFFIC_SCENE_ONLY_RED, (esp_timer_get_time() / 1000) + delay_ms);
                 break;
 
             case 5:
                 phase = 6;
-                delay_ms = RED_YELLOW_DURATION_MS;
+                delay_ms = RED_DURATION_MS;
                 publish_scene_group(TRAFFIC_GROUP2_ADDR, TRAFFIC_SCENE_RED_AND_YELLOW, (esp_timer_get_time() / 1000) + delay_ms);
                 break;
 
             case 6:
                 phase = 7;
-                delay_ms = (((uint32_t)rand()) % 5000) + 5000;
+                delay_ms = RED_YELLOW_DURATION_MS;
                 publish_scene_group(TRAFFIC_GROUP2_ADDR, TRAFFIC_SCENE_ONLY_GREEN, (esp_timer_get_time() / 1000) + delay_ms);
                 break;
 
             case 7:
                 phase = 8;
-                delay_ms = YELLOW_DURATION_MS;
+                delay_ms = (((uint32_t)rand()) % 5000) + 5000;
                 publish_scene_group(TRAFFIC_GROUP2_ADDR, TRAFFIC_SCENE_ONLY_YELLOW, (esp_timer_get_time() / 1000) + delay_ms);
                 break;
 
             case 8:
                 phase = 1;
-                delay_ms = RED_DURATION_MS;
+                delay_ms = YELLOW_DURATION_MS;
                 publish_scene_group(TRAFFIC_GROUP2_ADDR, TRAFFIC_SCENE_ONLY_RED, (esp_timer_get_time() / 1000) + delay_ms);
                 break;
 
